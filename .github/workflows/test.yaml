@@ -19,5 +19,7 @@ jobs:
       - name: Install dependencies
         run: |
           go get .
+      - name: Build
+        run: go build -v ./...
       - name: Run Tests
         run: go test ./... --cover
