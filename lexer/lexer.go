@@ -5,8 +5,6 @@ import (
 	"unicode"
 )
 
-type Token string
-
 type Lexer struct {
 	Terms []rune
 }
