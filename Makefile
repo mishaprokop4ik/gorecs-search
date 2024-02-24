@@ -45,26 +45,30 @@ audit:
 # DEVELOPMENT
 # ==================================================================================== #
 
+# dep: install all dependencies
+.PHONY: dep
+dep:
+	go mod tidy
+	go get .
 ## test: run all tests
 .PHONY: test
-test:
+test: dep
 	go test -v -race -buildvcs ./...
 
 ## test/cover: run all tests and display coverage
 .PHONY: test/cover
-test/cover:
+test/cover: dep
 	go test -v -race -buildvcs -coverprofile=/tmp/coverage.out ./...
 	go tool cover -html=/tmp/coverage.out
 
 ## build: build the application
 .PHONY: build
-build:
-	# Include additional build steps, like TypeScript, SCSS or Tailwind compilation here...
+build: dep
 	go build -o=/tmp/bin/${BINARY_NAME} ${MAIN_PACKAGE_PATH}
 
 ## run: run the  application
 .PHONY: run
-run: build
+run: dep build
 	/tmp/bin/${BINARY_NAME}
 
 ## run/live: run the application with reloading on file changes
