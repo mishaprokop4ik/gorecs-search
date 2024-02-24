@@ -1,6 +1,8 @@
 package slices
 
-import "slices"
+import (
+	"slices"
+)
 
 func Count[V comparable](key V, values []V) uint {
 	count := 0
@@ -15,9 +17,6 @@ func Count[V comparable](key V, values []V) uint {
 }
 
 func Exist[V comparable](key V, values []V) bool {
-	if values == nil {
-		return false
-	}
 	index := slices.Index(values, key)
 	return index != -1
 }

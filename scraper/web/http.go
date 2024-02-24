@@ -6,14 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"github.com/mishaprokop4ik/gorecs-search/pkg/slices"
-	"golang.org/x/net/html"
-	"io"
 	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
 	"sync"
-	"time"
 )
 
 var (
@@ -23,170 +20,6 @@ var (
 
 	notTrustedErrorRe = regexp.MustCompile(`certificate is not trusted`)
 )
-
-var ErrorPageDoesNotExist = errors.New("page doesn't exist")
-
-type Page struct {
-	Type    string
-	URL     string
-	Content []string
-}
-
-type Client struct {
-	httpClient http.Client
-
-	retryPolicy func(err error, resp *http.Response) bool
-}
-
-func NewTag(t string) *Tag {
-	tag := &Tag{}
-
-	return tag
-}
-
-type Tag struct {
-	Name       string
-	Attributes map[string]string
-	Body       string
-
-	Raw []byte
-}
-
-func (t *Tag) addToken(k, v string) {
-	if k == "" {
-		return
-	}
-
-	if t.Attributes == nil {
-		t.Attributes = map[string]string{}
-	}
-
-	t.Attributes[k] = v
-}
-
-type FilterType int
-
-const (
-	FilterInclude FilterType = iota
-	FilterExclude
-)
-
-type FilterOption struct {
-	Tags []string
-	Type FilterType
-}
-
-func NewClient(retryPolicy func(err error, resp *http.Response) bool) *Client {
-	if retryPolicy == nil {
-		retryPolicy = baseRetryPolicy
-	}
-
-	httpClient := http.Client{
-		Timeout: 3 * time.Second,
-	}
-	return &Client{httpClient: httpClient, retryPolicy: retryPolicy}
-}
-
-func (c *Client) FilterPageElements(body io.ReadCloser, option FilterOption) []Tag {
-	token := html.NewTokenizer(body)
-
-	tags := make([]Tag, 0)
-	for tokenType := token.Next(); tokenType != html.ErrorToken; tokenType = token.Next() {
-		tagName, _ := token.TagName()
-		switch option.Type {
-		case FilterExclude:
-			for slices.Exist(string(tagName), option.Tags) {
-				// handle case, when value inside tag in excluded
-				// TODO: find another approach
-				if string(tagName) == "" {
-					tokenType = token.Next()
-					tagName, _ = token.TagName()
-
-					continue
-				}
-
-				for tokenType != html.ErrorToken && tokenType != html.EndTagToken {
-					tokenType = token.Next()
-					tagName, _ = token.TagName()
-				}
-
-				if tokenType == html.EndTagToken {
-					tokenType = token.Next()
-					tagName, _ = token.TagName()
-				}
-			}
-		case FilterInclude:
-			for !slices.Exist(string(tagName), option.Tags) {
-				for tokenType != html.ErrorToken && tokenType != html.EndTagToken {
-					tokenType = token.Next()
-					tagName, _ = token.TagName()
-				}
-
-				if tokenType == html.EndTagToken {
-					tokenType = token.Next()
-					tagName, _ = token.TagName()
-				}
-			}
-		}
-
-		if tokenType == html.ErrorToken {
-			break
-		}
-
-		tag := Tag{
-			Name:       string(tagName),
-			Attributes: map[string]string{},
-			Body:       string(token.Text()),
-
-			Raw: token.Raw(),
-		}
-
-		for {
-			k, v, a := token.TagAttr()
-
-			tag.addToken(string(k), string(v))
-
-			if !a {
-				break
-			}
-		}
-
-		tags = append(tags, tag)
-	}
-
-	return tags
-}
-
-func (c *Client) GetPageContent(url string) ([]string, error) {
-	resp, err := c.Get(url)
-	defer func() { _ = resp.Body.Close() }()
-	if err != nil {
-		return nil, fmt.Errorf("cannot fetch page %s - %w", url, err)
-	}
-	tags := c.FilterPageElements(resp.Body, FilterOption{
-		Tags: []string{"script", "style"},
-		Type: FilterExclude,
-	})
-
-	result := make([]string, len(tags))
-	for i, tag := range tags {
-		if strings.ReplaceAll(tag.Body, " ", "") != "" {
-			result[i] = tag.Body
-		}
-	}
-
-	return result, nil
-}
-
-func (c *Client) Get(url string) (*http.Response, error) {
-	resp, err := c.httpClient.Get(url)
-	// TODO: implement retry mechanism
-	if err != nil {
-		return nil, fmt.Errorf("cannot fetch page %s - %w", url, err)
-	}
-
-	return resp, nil
-}
 
 type Scraper struct {
 	client *Client
@@ -206,7 +39,7 @@ func (s *Scraper) Scrape(baseURL string) (map[string][]string, error) {
 		return map[string][]string{}, fmt.Errorf("%s, url: %s", ErrorPageDoesNotExist, baseURL)
 	}
 
-	links, err := s.pullReferences(baseURL)
+	links, err := s.PullReferences(baseURL)
 	if err != nil {
 		return map[string][]string{}, fmt.Errorf("cannot get ")
 	}
@@ -230,6 +63,7 @@ func (s *Scraper) Scrape(baseURL string) (map[string][]string, error) {
 
 			if last {
 				stopch <- struct{}{}
+				return
 			}
 
 			page := Page{
@@ -269,10 +103,48 @@ func (s *Scraper) GetPageContent(url string) ([]string, error) {
 	return terms, nil
 }
 
-func (s *Scraper) pullReferences(url string) ([]string, error) {
+func (s *Scraper) PullReferences(baseURL string) ([]string, error) {
+	htmlLinkTag := "a"
+	resp, err := s.client.Get(baseURL)
+	if err != nil {
+		return []string{}, fmt.Errorf("cannot fetch page: %s, err: %s", baseURL, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	linkTags := s.client.FilterPageElements(resp.Body, FilterOption{
+		Tags: []string{htmlLinkTag},
+		Type: FilterInclude,
+	})
+	pageLinks := make([]string, len(linkTags))
+	for i, tag := range linkTags {
+		if _, ok := tag.Attributes["href"]; ok {
+			link, _, _ := strings.Cut(tag.Attributes["href"], "#")
+			/*
+				TODO: check that page by this link exist
+			*/
+			if link == "" {
+				continue
+			}
+			if strings.HasPrefix(link, "http://") || strings.HasPrefix(link, "https://") {
+				if !slices.Exist(link, pageLinks) {
+					pageLinks[i] = link
+				}
+			} else if strings.HasPrefix(link, "/") {
+				testURL, _ := url.Parse(baseURL)
+				if testURL != nil {
+					//fmt.Println(testURL.Scheme, testURL.Host)
+				}
 
-	//s.client.FilterPageElements()
-	panic("")
+				link := fmt.Sprintf("%s://%s/%s", testURL.Scheme, testURL.Host, strings.TrimLeft(link, "/"))
+				if !slices.Exist(link, pageLinks) {
+					pageLinks[i] = link
+				}
+			}
+
+			//pageLinks[i] = link
+		}
+	}
+
+	return pageLinks, nil
 }
 
 func (s *Scraper) existPage(url string) bool {

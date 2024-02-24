@@ -7,15 +7,15 @@ import (
 	"testing"
 )
 
-func TestClient_FilterPageElements(t *testing.T) {
+func TestClient_Ge(t *testing.T) {
 	c := web.NewClient(nil)
 	resp, err := c.Get("https://zetcode.com/golang/net-html/")
 	defer func() { _ = resp.Body.Close() }()
 	assert.Nil(t, err)
 
 	//res := c.FilterPageElements(resp.Body, web.FilterOption{
-	//	//Tags: []string{""},
-	//	Type: web.FilterExclude,
+	//	Tags: []string{"a"},
+	//	Type: web.FilterInclude,
 	//})
 	//for _, token := range res {
 	//	fmt.Println(token.Name, token.Body, token.Attributes)
