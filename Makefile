@@ -1,6 +1,7 @@
 # Change these variables as necessary.
 MAIN_PACKAGE_PATH := .
 BINARY_NAME := gorecs-search
+GOLINT_CONFIG := .golangci.yml
 
 # ==================================================================================== #
 # HELPERS
@@ -44,6 +45,11 @@ audit:
 # ==================================================================================== #
 # DEVELOPMENT
 # ==================================================================================== #
+
+# running linter thought the codebase
+.PHONY: lint
+lint:
+	golangci-lint run --config=${GOLINT_CONFIG}
 
 # dep: install all dependencies
 .PHONY: dep
