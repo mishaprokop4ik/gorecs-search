@@ -19,16 +19,15 @@ jobs:
       - name: Linter
         uses: golangci/golangci-lint-action@v4
         with:
-          version: v1.54
-          working-directory: .
-          # Optional: golangci-lint command line arguments.
-          #
-          # Note: by default the `.golangci.yml` file should be at the root of the repository.
+          version: v1.56
           # The location of the configuration file can be changed by using `--config=`
           args: --timeout=30m --config=.golangci.yml --issues-exit-code=0
 
           # Optional: show only new issues if it's a pull request. The default value is `false`.
           # only-new-issues: true
+
+          # Optional:The mode to install golangci-lint. It can be 'binary' or 'goinstall'.
+          install-mode: "goinstall"
       - name: Build
         run: make build
       - name: Run Tests
