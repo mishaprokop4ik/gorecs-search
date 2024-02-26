@@ -26,7 +26,7 @@ func TestNewLexer(t *testing.T) {
 `
 
 	l := lexer.NewLexer(content)
-	//assert.Equal(t, slices.l.)
+
 	t.Log("Comparing input terms and in Lexer")
 	assert.Equal(t, content, string(l.Terms))
 }

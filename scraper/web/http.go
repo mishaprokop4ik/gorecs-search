@@ -5,7 +5,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
-	"github.com/mishaprokop4ik/gorecs-search/pkg/slices"
+	gorecslices "github.com/mishaprokop4ik/gorecs-search/pkg/slices"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -21,11 +21,12 @@ var (
 	notTrustedErrorRe = regexp.MustCompile(`certificate is not trusted`)
 )
 
+const htmlLinkTag = "a"
+
 type Scraper struct {
 	client *Client
 	sites  map[string][]string
-
-	mutex *sync.RWMutex
+	mutex  *sync.RWMutex
 }
 
 func NewScraper() *Scraper {
@@ -36,12 +37,13 @@ func (s *Scraper) Scrape(baseURL string) (map[string][]string, error) {
 	result := make(map[string][]string)
 
 	if !s.existPage(baseURL) {
-		return map[string][]string{}, fmt.Errorf("%s, url: %s", ErrorPageDoesNotExist, baseURL)
+		return map[string][]string{}, fmt.Errorf("%s, url: %s", ErrPageDoesNotExist, baseURL)
 	}
 
 	links, err := s.PullReferences(baseURL)
 	if err != nil {
-		return map[string][]string{}, fmt.Errorf("cannot get ")
+		return map[string][]string{}, fmt.Errorf("failed to pull references by %s link, err: %w",
+			baseURL, err)
 	}
 
 	pagech := make(chan Page)
@@ -82,7 +84,7 @@ Loop:
 			result[page.URL] = page.Content
 			s.mutex.Unlock()
 		case err := <-errch:
-			fmt.Printf("caught an error: %s\n", err)
+			fmt.Println("caught an error:", err)
 		case <-stopch:
 			break Loop
 		}
@@ -93,18 +95,21 @@ Loop:
 
 func (s *Scraper) GetPageContent(url string) ([]string, error) {
 	if !s.existPage(url) {
-		return []string{}, fmt.Errorf("%s, url: %s", ErrorPageDoesNotExist, url)
+		return []string{}, fmt.Errorf("%s, url: %s", ErrPageDoesNotExist, url)
 	}
 
 	terms, err := s.client.GetPageContent(url)
 	if err != nil {
-		panic(fmt.Sprintf("caught unexpected error - %s", err))
+		return []string{}, fmt.Errorf("failed to get page content: %w", err)
 	}
 	return terms, nil
 }
 
 func (s *Scraper) PullReferences(baseURL string) ([]string, error) {
-	htmlLinkTag := "a"
+	if _, err := url.Parse(baseURL); err != nil {
+		return []string{}, fmt.Errorf("incorrent url param: %w", err)
+	}
+
 	resp, err := s.client.Get(baseURL)
 	if err != nil {
 		return []string{}, fmt.Errorf("cannot fetch page: %s, err: %s", baseURL, err)
@@ -125,22 +130,17 @@ func (s *Scraper) PullReferences(baseURL string) ([]string, error) {
 				continue
 			}
 			if strings.HasPrefix(link, "http://") || strings.HasPrefix(link, "https://") {
-				if !slices.Exist(link, pageLinks) {
+				if !gorecslices.Exist(link, pageLinks) {
 					pageLinks[i] = link
 				}
 			} else if strings.HasPrefix(link, "/") {
 				testURL, _ := url.Parse(baseURL)
-				if testURL != nil {
-					//fmt.Println(testURL.Scheme, testURL.Host)
-				}
 
 				link := fmt.Sprintf("%s://%s/%s", testURL.Scheme, testURL.Host, strings.TrimLeft(link, "/"))
-				if !slices.Exist(link, pageLinks) {
+				if !gorecslices.Exist(link, pageLinks) {
 					pageLinks[i] = link
 				}
 			}
-
-			//pageLinks[i] = link
 		}
 	}
 
@@ -181,14 +181,6 @@ func baseRetryPolicy(err error, response *http.Response) bool {
 				return false
 			}
 		}
-	}
-
-	if response.StatusCode == http.StatusNotFound {
-		return false
-	}
-
-	if response.StatusCode == http.StatusTooManyRequests {
-		return true
 	}
 
 	if response.StatusCode == 0 ||

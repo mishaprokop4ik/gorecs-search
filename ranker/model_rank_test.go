@@ -3,6 +3,7 @@ package ranker_test
 import (
 	"github.com/mishaprokop4ik/gorecs-search/lexer"
 	"github.com/mishaprokop4ik/gorecs-search/ranker"
+	"github.com/stretchr/testify/assert"
 	"testing"
 )
 
@@ -47,5 +48,5 @@ The play concerns the test efforts of Helena, daughter of a renowned physician t
 
 	res := m.Rank("william", "shakespeare", "to")
 
-	t.Log(res)
+	assert.Equal(t, []ranker.Path{"local1"}, res)
 }

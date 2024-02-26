@@ -3,16 +3,17 @@ package web
 import (
 	"errors"
 	"fmt"
-	"github.com/mishaprokop4ik/gorecs-search/pkg/slices"
+	gorecslices "github.com/mishaprokop4ik/gorecs-search/pkg/slices"
 	"golang.org/x/net/html"
 	"io"
 	"net/http"
-	slices2 "slices"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
 
-var ErrorPageDoesNotExist = errors.New("page doesn't exist")
+var ErrPageDoesNotExist = errors.New("page doesn't exist")
 
 type Page struct {
 	Type    string
@@ -26,18 +27,56 @@ type Client struct {
 	retryPolicy func(err error, resp *http.Response) bool
 }
 
-func NewTag(t string) *Tag {
-	tag := &Tag{}
+type TagType int
 
-	return tag
+const (
+	Doctype TagType = iota
+	SelfCloseTag
+	OpenTag
+	Body
+	CloseTag
+)
+
+// String returns a string representation of the TokenType.
+func (t TagType) String() string {
+	switch t {
+	case Doctype:
+		return "Doctype"
+	case Body:
+		return "Body"
+	case OpenTag:
+		return "OpenTag"
+	case CloseTag:
+		return "CloseTag"
+	case SelfCloseTag:
+		return "SelfCloseTag"
+	}
+
+	return "Invalid(" + strconv.Itoa(int(t)) + ")"
 }
 
 type Tag struct {
 	Name       string
-	Attributes map[string]string
 	Body       string
+	Type       TagType
+	Raw        []byte
+	Attributes map[string]string
+}
 
-	Raw []byte
+func (t *Tag) provideType(tokenType html.TokenType) {
+	switch tokenType {
+	case html.DoctypeToken:
+		t.Type = Doctype
+		t.Name = "DOCTYPE"
+	case html.SelfClosingTagToken:
+		t.Type = SelfCloseTag
+	case html.StartTagToken:
+		t.Type = OpenTag
+	case html.TextToken:
+		t.Type = Body
+	case html.EndTagToken:
+		t.Type = CloseTag
+	}
 }
 
 func (t *Tag) addAttribute(k, v string) {
@@ -78,43 +117,48 @@ func NewClient(retryPolicy func(err error, resp *http.Response) bool) *Client {
 func (c *Client) FilterPageElements(body io.ReadCloser, option FilterOption) []Tag {
 	token := html.NewTokenizer(body)
 	tags := make([]Tag, 0)
-Root:
 	for tokenType := token.Next(); tokenType != html.ErrorToken; tokenType = token.Next() {
 		tagName, _ := token.TagName()
 		switch option.Type {
 		case FilterExclude:
-			// loop for handling sequence of  tags: e.g. script, script, script
-			for slices.Exist(string(tagName), option.Tags) {
-				// handle case, when value inside tag in excluded
-				// TODO: find another approach
-				if string(tagName) == "" {
+			if gorecslices.Exist(string(tagName), option.Tags) {
+				currentTag := string(tagName)
+				for {
 					tokenType = token.Next()
 					tagName, _ = token.TagName()
+					if tokenType == html.ErrorToken {
+						break
+					}
 
-					continue Root
+					if tokenType == html.EndTagToken && currentTag == string(tagName) {
+						tokenType = token.Next()
+						tagName, _ = token.TagName()
+						break
+					} else if (tokenType == html.SelfClosingTagToken || tokenType == html.DoctypeToken || string(tagName) == "meta") &&
+						currentTag == string(tagName) {
+						// TODO: check all tags and find them that have the same signature as meta
+						// TODO: find possible another approach for meta tag
+						tokenType = token.Next()
+						tagName, _ = token.TagName()
+						break
+					}
 				}
-
-				for tokenType != html.ErrorToken && tokenType != html.EndTagToken {
-					tokenType = token.Next()
-					tagName, _ = token.TagName()
-				}
-
-				if tokenType == html.EndTagToken {
-					tokenType = token.Next()
-					tagName, _ = token.TagName()
-				}
+			}
+			rawToken := slices.Clone(token.Raw())
+			if strings.TrimSpace(string(rawToken)) == "" {
+				continue
 			}
 			tag := Tag{
 				Name:       string(tagName),
 				Attributes: map[string]string{},
 				Body:       string(token.Text()),
-
-				Raw: slices2.Clone(token.Raw()),
+				Raw:        rawToken,
 			}
+
+			tag.provideType(tokenType)
 
 			for {
 				k, v, a := token.TagAttr()
-
 				tag.addAttribute(string(k), string(v))
 
 				if !a {
@@ -124,15 +168,16 @@ Root:
 
 			tags = append(tags, tag)
 		case FilterInclude:
-			if slices.Exist(string(tagName), option.Tags) {
+			if gorecslices.Exist(string(tagName), option.Tags) {
 				for tokenType != html.EndTagToken {
 					tag := Tag{
 						Name:       string(tagName),
 						Attributes: map[string]string{},
 						Body:       string(token.Text()),
-
-						Raw: slices2.Clone(token.Raw()),
+						Raw:        slices.Clone(token.Raw()),
 					}
+
+					tag.provideType(tokenType)
 
 					for {
 						k, v, a := token.TagAttr()
@@ -151,9 +196,10 @@ Root:
 					Name:       string(tagName),
 					Attributes: map[string]string{},
 					Body:       string(token.Text()),
-
-					Raw: slices2.Clone(token.Raw()),
+					Raw:        slices.Clone(token.Raw()),
 				}
+
+				tag.provideType(tokenType)
 
 				for {
 					k, v, a := token.TagAttr()

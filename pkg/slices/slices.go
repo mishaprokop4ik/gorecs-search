@@ -9,7 +9,7 @@ func Count[V comparable](key V, values []V) uint {
 
 	for _, v := range values {
 		if key == v {
-			count += 1
+			count++
 		}
 	}
 

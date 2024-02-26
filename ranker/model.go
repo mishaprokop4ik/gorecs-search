@@ -1,9 +1,9 @@
 package ranker
 
 import (
-	"github.com/mishaprokop4ik/gorecs-search/pkg/slices"
+	gorecslices "github.com/mishaprokop4ik/gorecs-search/pkg/slices"
 	"math"
-	slices2 "slices"
+	"slices"
 	"sort"
 	"time"
 )
@@ -18,7 +18,7 @@ func NewModel(docs map[string][]string) *Model {
 		}
 
 		for _, term := range terms {
-			doc.Terms[term] = slices.Count(term, terms)
+			doc.Terms[term] = gorecslices.Count(term, terms)
 		}
 
 		modelDocs[Path(path)] = doc
@@ -38,7 +38,7 @@ func (m *Model) AddDocuments(d map[string][]string) *Model {
 		}
 
 		for _, term := range terms {
-			doc.Terms[term] = slices.Count(term, terms)
+			doc.Terms[term] = gorecslices.Count(term, terms)
 		}
 
 		m.Docs[Path(path)] = doc
@@ -80,7 +80,7 @@ func (m *Model) Rank(keyWords ...string) []Path {
 	}
 	sort.Slice(keys, func(i, j int) bool { return docFreq[keys[i]] > docFreq[keys[j]] })
 
-	keys = slices2.DeleteFunc(keys, func(path Path) bool {
+	keys = slices.DeleteFunc(keys, func(path Path) bool {
 		return docFreq[path] <= 0
 	})
 
@@ -105,7 +105,7 @@ func (m *Model) computeIDF(term string) float64 {
 
 	for _, doc := range m.Docs {
 		if termCount := doc.Terms[term]; termCount > 0 {
-			termAppearsCount += 1
+			termAppearsCount++
 		}
 	}
 

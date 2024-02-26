@@ -27,7 +27,7 @@ func (l *Lexer) chop(n int) []rune {
 func (l *Lexer) chopWhile(predicate func(component rune) bool) []rune {
 	n := 0
 	for n < len(l.Terms) && predicate(l.Terms[n]) {
-		n += 1
+		n++
 	}
 
 	return l.chop(n)
