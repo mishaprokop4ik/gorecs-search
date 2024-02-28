@@ -8,6 +8,7 @@ import (
 	"time"
 )
 
+// NewModel generates new tf-idf ranking function model.
 func NewModel(docs map[string][]string) *Model {
 	modelDocs := make(Docs)
 	for path, terms := range docs {
@@ -29,6 +30,7 @@ func NewModel(docs map[string][]string) *Model {
 	}
 }
 
+// AddDocuments adds combination of document's path and document's tokens to the ranking model.
 func (m *Model) AddDocuments(d map[string][]string) *Model {
 	for path, terms := range d {
 		doc := Doc{
@@ -47,6 +49,8 @@ func (m *Model) AddDocuments(d map[string][]string) *Model {
 	return m
 }
 
+// Model represents API for tf-idf ranking function model.
+// Provides results for Model's Docs.
 type Model struct {
 	Docs Docs
 }
@@ -63,6 +67,7 @@ type DocFreq map[Path]float64
 
 type Path string
 
+// Rank returns sorted by if-idf rank function paths.
 func (m *Model) Rank(keyWords ...string) []Path {
 	docFreq := DocFreq{}
 
@@ -87,19 +92,31 @@ func (m *Model) Rank(keyWords ...string) []Path {
 	return keys
 }
 
-// tf - x / y
-// where x - the total number of term count in a document
-// y - the count of all terms
-func (m *Model) computeTF(term string, documentPath Path) float64 {
+// computeTermFrequency calculates tf for a term by a documentPath.
+//
+// Formula: tf = x / y
+//
+// Where:
+//
+// x - the total number of term count in a document;
+//
+// y - count of all terms by documentPath
+func (m *Model) computeTermFrequency(term string, documentPath Path) float64 {
 	document := m.Docs[documentPath]
 	termFreq := document.Terms[term]
 	return float64(termFreq) / float64(len(document.Terms))
 }
 
-// idf - log(x / 1 + y)
-// x - total number of documents
-// y - number of terms count in all documents
-func (m *Model) computeIDF(term string) float64 {
+// computeInverseDocumentFrequency calculates idf for a term.
+//
+// Formula: idf = log(x / y), if y == 0 => idf = log(x)
+//
+// Where:
+//
+// x - total number of documents;
+//
+// y - number of terms count in all documents.
+func (m *Model) computeInverseDocumentFrequency(term string) float64 {
 	totalDocNumber := float64(len(m.Docs))
 	termAppearsCount := float64(0)
 
@@ -112,7 +129,7 @@ func (m *Model) computeIDF(term string) float64 {
 	return math.Log10(totalDocNumber / math.Max(termAppearsCount, 1))
 }
 
-// tfidf = tf * idf
+// computeTFIDF calculates multiplication of computeTermFrequency and computeInverseDocumentFrequency.
 func (m *Model) computeTFIDF(term string, documentPath Path) float64 {
-	return m.computeTF(term, documentPath) * m.computeIDF(term)
+	return m.computeTermFrequency(term, documentPath) * m.computeInverseDocumentFrequency(term)
 }

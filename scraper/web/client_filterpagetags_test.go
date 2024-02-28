@@ -9,7 +9,7 @@ import (
 )
 
 func TestClient_FilterPageElements(t *testing.T) {
-	c := web.NewClient(nil)
+	c := web.NewClient(web.BaseRetryPolicy())
 
 	type result struct {
 		tags []web.Tag
@@ -19,7 +19,7 @@ func TestClient_FilterPageElements(t *testing.T) {
 		page         string
 		filterAction web.FilterOption
 	}
-	page := `<!DOCTYPE html>
+	defaultPage := `<!DOCTYPE html>
 			<html lang="en">
 			<head>
 				<meta charset="UTF-8">
@@ -44,7 +44,7 @@ func TestClient_FilterPageElements(t *testing.T) {
 		{
 			name: "should return two <a> tags with body and close tags",
 			input: params{
-				page: page,
+				page: defaultPage,
 				filterAction: web.FilterOption{
 					Tags: []string{
 						"a",
@@ -65,7 +65,7 @@ func TestClient_FilterPageElements(t *testing.T) {
 						Raw:  []byte(`<a href="https://www.example.com">`),
 					},
 					{
-						Name:       "a",
+						Name:       "",
 						Attributes: map[string]string{},
 						Body:       "Link 1",
 						Type:       web.Body,
@@ -89,7 +89,7 @@ func TestClient_FilterPageElements(t *testing.T) {
 						Raw:  []byte(`<a href="https://www.example.org">`),
 					},
 					{
-						Name:       "a",
+						Name:       "",
 						Attributes: map[string]string{},
 						Body:       "Link 2",
 						Type:       web.Body,
@@ -106,9 +106,103 @@ func TestClient_FilterPageElements(t *testing.T) {
 			},
 		},
 		{
+			name: "should return two everything inside div",
+			input: params{
+				page: `<div>
+				<p>Open first div</p>
+				<div>
+					<p>Inside second div</p>
+				</div>
+				<p>Close second div</p>
+			</div>
+			</html>`,
+				filterAction: web.FilterOption{
+					Tags: []string{
+						"div",
+					},
+					Type: web.FilterInclude,
+				},
+			},
+			output: result{
+				tags: []web.Tag{
+					// first tag
+					{
+						Name:       "div",
+						Attributes: map[string]string{},
+						Body:       "",
+						Type:       web.OpenTag,
+						Raw:        []byte(`<div>`),
+					},
+					{
+						Name:       "p",
+						Attributes: map[string]string{},
+						Body:       "",
+						Type:       web.OpenTag,
+						Raw:        []byte(`<p>`),
+					},
+					{
+						Name:       "",
+						Attributes: map[string]string{},
+						Body:       "Open first div",
+						Type:       web.Body,
+						Raw:        []byte(`Open first div`),
+					},
+					{
+						Name:       "p",
+						Attributes: map[string]string{},
+						Body:       "",
+						Type:       web.CloseTag,
+						Raw:        []byte(`</p>`),
+					},
+					{
+						Name:       "div",
+						Attributes: map[string]string{},
+						Body:       "",
+						Type:       web.OpenTag,
+						Raw:        []byte(`<div>`),
+					},
+					{
+						Name:       "p",
+						Attributes: map[string]string{},
+						Body:       "",
+						Type:       web.OpenTag,
+						Raw:        []byte(`<p>`),
+					},
+					{
+						Name:       "",
+						Attributes: map[string]string{},
+						Body:       "Inside second div",
+						Type:       web.Body,
+						Raw:        []byte(`Inside second div`),
+					},
+					{
+						Name:       "p",
+						Attributes: map[string]string{},
+						Body:       "",
+						Type:       web.CloseTag,
+						Raw:        []byte(`</p>`),
+					},
+					{
+						Name:       "div",
+						Attributes: map[string]string{},
+						Body:       "",
+						Type:       web.CloseTag,
+						Raw:        []byte(`</div>`),
+					},
+					{
+						Name:       "div",
+						Attributes: map[string]string{},
+						Body:       "",
+						Type:       web.CloseTag,
+						Raw:        []byte(`</div>`),
+					},
+				},
+			},
+		},
+		{
 			name: "should return DOCTYPE html after excluding html tag",
 			input: params{
-				page: page,
+				page: defaultPage,
 				filterAction: web.FilterOption{
 					Tags: []string{
 						"html",
@@ -131,7 +225,7 @@ func TestClient_FilterPageElements(t *testing.T) {
 		{
 			name: "should return only DOCTYPE and tags inside head",
 			input: params{
-				page: page,
+				page: defaultPage,
 				filterAction: web.FilterOption{
 					Tags: []string{
 						"body",
@@ -224,7 +318,7 @@ func TestClient_FilterPageElements(t *testing.T) {
 		{
 			name: "should return only DOCTYPE and title tag",
 			input: params{
-				page: page,
+				page: defaultPage,
 				filterAction: web.FilterOption{
 					Tags: []string{
 						"body",
