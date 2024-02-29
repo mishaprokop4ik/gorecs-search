@@ -6,11 +6,13 @@ import (
 	"errors"
 	"fmt"
 	gorecslices "github.com/mishaprokop4ik/gorecs-search/pkg/slices"
+	"io"
 	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 )
 
 type Reference string
@@ -21,6 +23,7 @@ func BaseRetryPolicy() RetryPolicyFunc {
 	return func(err error, response *http.Response) bool {
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
+				time.Sleep(3 * time.Second)
 				return true
 			}
 
@@ -45,6 +48,15 @@ func BaseRetryPolicy() RetryPolicyFunc {
 			}
 		}
 
+		if response == nil {
+			return true
+		}
+
+		if response.StatusCode == http.StatusTooManyRequests {
+			time.Sleep(3 * time.Second)
+			return true
+		}
+
 		if response.StatusCode == 0 ||
 			(response.StatusCode >= 500 && response.StatusCode != http.StatusNotImplemented) {
 			return true
@@ -62,6 +74,7 @@ func DefaultContentFilterOption() FilterOption {
 			"img",
 			"iframe",
 			"noscript",
+			"iframe",
 		},
 		Type: FilterExclude,
 	}
@@ -75,27 +88,33 @@ var (
 	notTrustedErrorRe = regexp.MustCompile(`certificate is not trusted`)
 )
 
+type PageFetcher interface {
+	FilterPageElements(body io.ReadCloser, option FilterOption) []Tag
+	Get(url string) (*http.Response, error)
+	ExistPage(url string) bool
+}
+
 const htmlLinkTag = "a"
 
 type Scraper struct {
-	client *Client
+	client PageFetcher
 	sites  map[string][]string
 	mutex  *sync.RWMutex
 }
 
 func NewScraper() *Scraper {
-	return &Scraper{client: NewClient(BaseRetryPolicy()), mutex: &sync.RWMutex{}}
+	return &Scraper{client: NewClient(BaseRetryPolicy(), 5), mutex: &sync.RWMutex{}}
 }
 
 func (s *Scraper) Scrape(baseURL string) (map[string][]string, error) {
 	result := make(map[string][]string)
 
-	if !s.client.existPage(baseURL) {
+	if !s.client.ExistPage(baseURL) {
 		return map[string][]string{}, fmt.Errorf("%s, url: %s", ErrPageDoesNotExist, baseURL)
 	}
-	/*
-		TODO: check that page by this link exist
-	*/
+
+	basePageContent, err := s.pullContent(baseURL)
+
 	links, err := s.pullReferences(baseURL)
 	if err != nil {
 		return map[string][]string{}, fmt.Errorf("failed to pull references by %s link, err: %w",
@@ -104,7 +123,6 @@ func (s *Scraper) Scrape(baseURL string) (map[string][]string, error) {
 
 	fmt.Println("got base links", links)
 
-	basePageContent, err := s.pullContent(baseURL)
 	if err != nil {
 		return map[string][]string{}, fmt.Errorf("failed to pull content from %s url, err: %w",
 			baseURL, err)
@@ -123,6 +141,9 @@ func (s *Scraper) Scrape(baseURL string) (map[string][]string, error) {
 
 	for i, link := range links {
 		go func(link string, last bool) {
+			/*
+				TODO: check that page by this link exist
+			*/
 			content, err := s.pullContent(link)
 			if err != nil {
 				errch <- err
@@ -160,7 +181,7 @@ Loop:
 }
 
 func (s *Scraper) pullContent(url string) ([]string, error) {
-	if !s.client.existPage(url) {
+	if !s.client.ExistPage(url) {
 		return []string{}, fmt.Errorf("%s, url: %s", ErrPageDoesNotExist, url)
 	}
 

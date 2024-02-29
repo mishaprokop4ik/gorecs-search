@@ -1,7 +1,6 @@
 package web
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	gorecslices "github.com/mishaprokop4ik/gorecs-search/pkg/slices"
@@ -14,7 +13,10 @@ import (
 	"time"
 )
 
-var ErrPageDoesNotExist = errors.New("page doesn't exist")
+var (
+	ErrPageDoesNotExist = errors.New("page doesn't exist")
+	ErrRetriesExceeded  = errors.New("exceeded retries")
+)
 
 type Page struct {
 	Type    string
@@ -27,7 +29,8 @@ type Client struct {
 	httpClient    http.Client
 	contentFilter FilterOption
 
-	retryPolicy func(err error, resp *http.Response) bool
+	retryPolicy   func(err error, resp *http.Response) bool
+	retryAttempts uint
 }
 
 // TagType represents tag type
@@ -131,7 +134,7 @@ func (f *FilterOption) Empty() bool {
 
 type RetryPolicyFunc func(err error, resp *http.Response) bool
 
-func NewClient(retryPolicy RetryPolicyFunc) *Client {
+func NewClient(retryPolicy RetryPolicyFunc, retryAttempts uint) *Client {
 	if retryPolicy == nil {
 		retryPolicy = BaseRetryPolicy()
 	}
@@ -139,7 +142,7 @@ func NewClient(retryPolicy RetryPolicyFunc) *Client {
 	httpClient := http.Client{
 		Timeout: 3 * time.Second,
 	}
-	return &Client{httpClient: httpClient, retryPolicy: retryPolicy}
+	return &Client{httpClient: httpClient, retryPolicy: retryPolicy, retryAttempts: retryAttempts}
 }
 
 func (c *Client) FilterPageElements(body io.ReadCloser, option FilterOption) []Tag {
@@ -155,26 +158,32 @@ func (c *Client) FilterPageElements(body io.ReadCloser, option FilterOption) []T
 					if tokenType == html.ErrorToken {
 						break
 					}
-
-					tokenType = token.Next()
-					tagName, _ = token.TagName()
-
-					if tokenType == html.EndTagToken && currentTag == string(tagName) {
-						tokenType = token.Next()
-						tagName, _ = token.TagName()
-						if !gorecslices.Exist(string(tagName), option.Tags) {
-							break
-						}
-					} else if (tokenType == html.SelfClosingTagToken || tokenType == html.DoctypeToken || string(tagName) == "meta") &&
-						currentTag == string(tagName) {
-						// TODO: check all tags and find them that have the same signature as meta
-						// TODO: find possible another approach for meta tag
+					// TODO: check all tags and find them that have the same signature as meta
+					// TODO: find possible another approach for meta tag
+					if gorecslices.Exist(string(tagName), option.Tags) && tokenType == html.StartTagToken && (string(tagName) == "meta" || string(tagName) == "img") {
 						tokenType = token.Next()
 						tagName, _ = token.TagName()
 						if !gorecslices.Exist(string(tagName), option.Tags) {
 							break
 						}
 					}
+					if tokenType == html.EndTagToken && currentTag == string(tagName) {
+						tokenType = token.Next()
+						tagName, _ = token.TagName()
+						if !gorecslices.Exist(string(tagName), option.Tags) {
+							break
+						}
+					} else if (tokenType == html.SelfClosingTagToken || tokenType == html.DoctypeToken) &&
+						currentTag == string(tagName) {
+						tokenType = token.Next()
+						tagName, _ = token.TagName()
+						if !gorecslices.Exist(string(tagName), option.Tags) {
+							break
+						}
+					}
+
+					tokenType = token.Next()
+					tagName, _ = token.TagName()
 				}
 			}
 			rawToken := slices.Clone(token.Raw())
@@ -262,44 +271,31 @@ func (c *Client) FilterPageElements(body io.ReadCloser, option FilterOption) []T
 	return tags
 }
 
-// GetPageContent returns tags body values from
-func (c *Client) GetPageContent(url string) ([]string, error) {
-	resp, err := c.Get(url)
-	defer func() {
-		if resp.Body != nil {
-			_ = resp.Body.Close()
-		}
-	}()
-	if err != nil {
-		return nil, fmt.Errorf("cannot fetch page %s - %w", url, err)
-	}
-	tags := c.FilterPageElements(resp.Body, c.contentFilter)
-
-	result := make([]string, len(tags))
-	for i, tag := range tags {
-		// TODO: choose one
-		//if tag.Type == Body {
-		//	result[i] = tag.Body
-		//}
-		if strings.ReplaceAll(tag.Body, " ", "") != "" {
-			result[i] = tag.Body
-		}
-	}
-
-	return result, nil
-}
-
 func (c *Client) Get(url string) (*http.Response, error) {
 	resp, err := c.httpClient.Get(url)
-	// TODO: implement retry mechanism
+	for leftRetries := c.retryAttempts; c.retryPolicy(err, resp) && leftRetries > 0; leftRetries-- {
+		resp, err = c.httpClient.Get(url)
+		if leftRetries == 1 {
+			if err != nil {
+				err = fmt.Errorf("%w: %w", ErrRetriesExceeded, err)
+			}
+			if resp.StatusCode >= http.StatusBadRequest {
+				if err == nil {
+					err = ErrRetriesExceeded
+				}
+				err = fmt.Errorf("%w: last status code %d", err, resp.StatusCode)
+			}
+		}
+	}
+
 	if err != nil {
-		return nil, fmt.Errorf("cannot fetch page %s - %w", url, err)
+		return nil, fmt.Errorf("cannot fetch %s page: %w", url, err)
 	}
 
 	return resp, nil
 }
 
-func (c *Client) existPage(url string) bool {
+func (c *Client) ExistPage(url string) bool {
 	resp, err := c.Get(url)
 
 	if err != nil {
@@ -307,8 +303,5 @@ func (c *Client) existPage(url string) bool {
 		return false
 	}
 
-	if errors.Is(err, context.DeadlineExceeded) {
-		// make 5 calls
-	}
 	return !(resp.StatusCode == http.StatusNotFound)
 }

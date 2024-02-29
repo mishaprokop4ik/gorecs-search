@@ -9,7 +9,7 @@ import (
 )
 
 func TestClient_FilterPageElements(t *testing.T) {
-	c := web.NewClient(web.BaseRetryPolicy())
+	c := web.NewClient(web.BaseRetryPolicy(), 5)
 
 	type result struct {
 		tags []web.Tag
