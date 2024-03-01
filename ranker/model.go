@@ -49,10 +49,25 @@ func (m *Model) AddDocuments(d map[string][]string) *Model {
 	return m
 }
 
+type DocumentStorer interface {
+	Save(path Path, doc Doc) error
+	Get(path Path) (Doc, error)
+	Remove(path Path) error
+}
+
+type RankStorer interface {
+	Save(keyWordsHash string, paths []Path) error
+	Get(keyWordsHash string) ([]Path, error)
+	Remove(keyWordsHash string) error
+}
+
 // Model represents API for tf-idf ranking function model.
 // Provides results for Model's Docs.
 type Model struct {
 	Docs Docs
+	// TODO: maybe it should be moved to another struct as Model shouldn't think about Storing stuff, it should think only about Ranking...
+	DocumentStore DocumentStorer
+	RankStore     RankStorer
 }
 
 type Docs map[Path]Doc

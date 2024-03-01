@@ -4,6 +4,6 @@ import (
 	"testing"
 )
 
-func TestScraper_Scrape(t *testing.T) {
+func TestCrawler_Scrape(t *testing.T) {
 
 }

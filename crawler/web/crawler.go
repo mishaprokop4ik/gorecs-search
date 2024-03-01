@@ -96,17 +96,17 @@ type PageFetcher interface {
 
 const htmlLinkTag = "a"
 
-type Scraper struct {
+type Crawler struct {
 	client PageFetcher
 	sites  map[string][]string
 	mutex  *sync.RWMutex
 }
 
-func NewScraper() *Scraper {
-	return &Scraper{client: NewClient(BaseRetryPolicy(), 5), mutex: &sync.RWMutex{}}
+func NewCrawler() *Crawler {
+	return &Crawler{client: NewClient(BaseRetryPolicy(), 5), mutex: &sync.RWMutex{}}
 }
 
-func (s *Scraper) Scrape(baseURL string) (map[string][]string, error) {
+func (s *Crawler) Scrape(baseURL string) (map[string][]string, error) {
 	result := make(map[string][]string)
 
 	if !s.client.ExistPage(baseURL) {
@@ -120,8 +120,6 @@ func (s *Scraper) Scrape(baseURL string) (map[string][]string, error) {
 		return map[string][]string{}, fmt.Errorf("failed to pull references by %s link, err: %w",
 			baseURL, err)
 	}
-
-	fmt.Println("got base links", links)
 
 	if err != nil {
 		return map[string][]string{}, fmt.Errorf("failed to pull content from %s url, err: %w",
@@ -138,12 +136,18 @@ func (s *Scraper) Scrape(baseURL string) (map[string][]string, error) {
 
 	stopch := make(chan struct{})
 	defer func() { close(stopch) }()
-
 	for i, link := range links {
 		go func(link string, last bool) {
-			/*
-				TODO: check that page by this link exist
-			*/
+			defer func() {
+				if r := recover(); r != nil {
+					fmt.Println("Recovered in getting content", "url", link, "error", r)
+				}
+			}()
+
+			if !s.client.ExistPage(link) {
+				errch <- fmt.Errorf("%s: %w", link, ErrPageDoesNotExist)
+				return
+			}
 			content, err := s.pullContent(link)
 			if err != nil {
 				errch <- err
@@ -171,6 +175,7 @@ Loop:
 			result[page.URL] = page.Content
 			s.mutex.Unlock()
 		case err := <-errch:
+			// TODO: save this link and try to make more attempts
 			fmt.Println("caught an error:", err)
 		case <-stopch:
 			break Loop
@@ -180,7 +185,7 @@ Loop:
 	return result, nil
 }
 
-func (s *Scraper) pullContent(url string) ([]string, error) {
+func (s *Crawler) pullContent(url string) ([]string, error) {
 	if !s.client.ExistPage(url) {
 		return []string{}, fmt.Errorf("%s, url: %s", ErrPageDoesNotExist, url)
 	}
@@ -198,11 +203,7 @@ func (s *Scraper) pullContent(url string) ([]string, error) {
 
 	result := make([]string, len(tags))
 	for i, tag := range tags {
-		// TODO: choose one
-		//if tag.Type == Body {
-		//	result[i] = tag.Body
-		//}
-		if strings.ReplaceAll(tag.Body, " ", "") != "" {
+		if tag.Type == Body && strings.ReplaceAll(tag.Body, " ", "") != "" {
 			result[i] = tag.Body
 		}
 	}
@@ -210,7 +211,7 @@ func (s *Scraper) pullContent(url string) ([]string, error) {
 	return result, nil
 }
 
-func (s *Scraper) pullReferences(baseURL string) ([]string, error) {
+func (s *Crawler) pullReferences(baseURL string) ([]string, error) {
 	if _, err := url.Parse(baseURL); err != nil {
 		return []string{}, fmt.Errorf("incorrent url param: %w", err)
 	}

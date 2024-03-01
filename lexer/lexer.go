@@ -39,6 +39,16 @@ func (l *Lexer) trimLeft() {
 	}
 }
 
+// All returns all tokens
+func (l *Lexer) All() []string {
+	tokens := []string{}
+	for t := l.Next(); t != ""; t = l.Next() {
+		tokens = append(tokens, t)
+	}
+
+	return tokens
+}
+
 func (l *Lexer) Next() string {
 	l.trimLeft()
 

@@ -1,7 +1,7 @@
 package web_test
 
 import (
-	"github.com/mishaprokop4ik/gorecs-search/scraper/web"
+	"github.com/mishaprokop4ik/gorecs-search/crawler/web"
 	"github.com/stretchr/testify/assert"
 	"net/http"
 	"testing"

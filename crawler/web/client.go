@@ -287,6 +287,7 @@ func (c *Client) Get(url string) (*http.Response, error) {
 			}
 		}
 	}
+	// TODO: check for redirects and make it
 
 	if err != nil {
 		return nil, fmt.Errorf("cannot fetch %s page: %w", url, err)
